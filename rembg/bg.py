@@ -125,6 +125,7 @@ def remove(
     alpha_matting_erode_size: int = 10,
     session: Optional[BaseSession] = None,
     only_mask: bool = False,
+    with_mask: bool = False,
     post_process_mask: bool = False,
     bgcolor: Optional[Tuple[int, int, int, int]] = None,
     *args: Optional[Any],
@@ -150,14 +151,17 @@ def remove(
 
     masks = session.predict(img, *args, **kwargs)
     cutouts = []
+    maskouts = []
 
     for mask in masks:
         if post_process_mask:
             mask = Image.fromarray(post_process(np.array(mask)))
+        
+        maskout = mask
 
         if only_mask:
             cutout = mask
-
+        
         elif alpha_matting:
             try:
                 cutout = alpha_matting_cutout(
@@ -174,22 +178,33 @@ def remove(
             cutout = naive_cutout(img, mask)
 
         cutouts.append(cutout)
+        maskouts.append(maskout)
 
     cutout = img
+    maskout = None
     if len(cutouts) > 0:
         cutout = get_concat_v_multi(cutouts)
+        if with_mask:
+            maskout = get_concat_v_multi(maskouts)
 
     if bgcolor is not None and not only_mask:
         cutout = apply_background_color(cutout, bgcolor)
 
     if ReturnType.PILLOW == return_type:
-        return cutout
+        return cutout, maskout
 
     if ReturnType.NDARRAY == return_type:
-        return np.asarray(cutout)
+        return np.asarray(cutout), np.asarray(maskout)
 
     bio = io.BytesIO()
     cutout.save(bio, "PNG")
     bio.seek(0)
 
-    return bio.read()
+    resmask = None
+    if with_mask and maskout is not None:   
+        bio1 = io.BytesIO()
+        maskout.save(bio1, "PNG")
+        bio1.seek(0)
+        resmask = bio1.read()
+
+    return bio.read(), resmask
